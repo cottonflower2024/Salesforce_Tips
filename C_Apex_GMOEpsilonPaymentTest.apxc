@@ -1,0 +1,130 @@
+@isTest public class C_Apex_GMOEpsilonPaymentTest {
+
+    /** 請求情報 **/
+    public C_Object_InvoiceInfo__c invoice;
+    
+	/** 申込内容 */
+	public String itemName = 'TEST_PRODUCT';
+	/** 契約開始日 **/
+	public String constructStartDate = '2023/03/01';
+	/** 契約終了日 **/
+	public String constructEndDate = '2023/03/31';
+	/** 金額 **/
+	public Decimal amount = 99999;
+	/** 支払フラグ **/
+	public Boolean paymentFlag = True;
+	/** 画像URL **/
+	public String logiImageUrl = 'dummy.jpg';
+          
+    // 正常ケース 01
+    @isTest static void myTest01() {
+                        
+        C_Apex_GMOEpsilonPayment cagp = new C_Apex_GMOEpsilonPayment();
+        // 戻り値のURL取得
+        String url;        
+        // ランダム文字生成
+        String uniqueNo = cagp.getRandomString(8);
+        
+        // 個人取引先の登録        
+		Account ac = new Account(		
+            		FirstName = '*テスト01姓',
+            		LastName = '*テスト01名',
+            		RecordTypeId = [SELECT id FROM RecordType WHERE DeveloperName = 'PersonAccount'].Id,        
+					PersonEmail = 'test01@kidstest.co.jp'
+			);
+        insert ac;
+        system.debug('----- ac : ' + ac.Id );
+
+        // 支払履歴の登録
+        Opportunity opp = new Opportunity(
+			Name = 'テスト履歴_TEST_CLASS_01' ,
+            StageName = '支払前',
+            AccountId = ac.Id,
+            Amount = 99999,
+            opp_Product__c = 'CFC養成講座',
+            opp_StartDate__c = date.today(),
+			CloseDate = date.today().addmonths(1)
+        );
+		insert opp;
+		system.debug('----- opp : ' + opp.Id );
+
+        // 請求情報の登録
+		C_Object_InvoiceInfo__c coic = new C_Object_InvoiceInfo__c(
+			C_Item_RM_Opportunity__c = opp.Id,
+            C_Item_SL_Phase__c = '1',
+			C_Item_D_ContractStartDate__c  = date.today(),
+			C_Item_D_ContractEndDate__c = date.today() + ( 24 * 28 ),
+			C_Item_D_PaymentDate__c = date.today() + (24*14),
+			C_Item_T_InvoiceYearMonth__c  = '2022',
+			C_Item_C_InvoiceAmount__c = 999999
+		);
+		insert coic;
+        system.debug('----- coic : ' + coic.Id );
+        
+        // 請求情報の検索
+		cagp.invoice = [
+	    		SELECT
+	    			Id,
+	    			Name,
+	    			C_Item_SL_Phase__c,
+	    			C_Item_D_ContractEndDate__c,
+	    			C_Item_D_ContractStartDate__c,
+	    			C_Item_RM_Opportunity__c,
+	    			C_Item_RM_Opportunity__r.Name,
+	    			C_Item_RM_Opportunity__r.opp_Product__c,	// 商品
+	    			C_Item_RM_Opportunity__r.opp_StartDate__c,	// 契約開始日
+	    			C_Item_RM_Opportunity__r.AccountId,
+	    			C_Item_RM_Opportunity__r.Account.Name,
+	    			C_Item_RM_Opportunity__r.Account.PersonEmail,
+	    			C_Item_D_PaymentDate__c,
+	    			C_Item_T_InvoiceYearMonth__c,
+	    			C_Item_C_InvoiceAmount__c
+	    		FROM
+	    			C_Object_InvoiceInfo__c
+	    		WHERE
+	    			Id = :coic.Id ];
+        
+		system.debug('----- cagp.invoice.Id : ' + cagp.invoice.Id );
+        
+        /** 申込内容 */
+        cagp.itemName = cagp.invoice.C_Item_RM_Opportunity__r.Name;
+        /** 契約開始日 **/
+        cagp.constructStartDate = string.valueOf(cagp.invoice.C_Item_D_ContractStartDate__c);
+        /** 契約終了日 **/
+        cagp.constructEndDate = string.Valueof(cagp.invoice.C_Item_D_ContractEndDate__c);
+        /** 金額 **/
+        cagp.amount = cagp.invoice.C_Item_C_InvoiceAmount__c;
+        /** 支払フラグ **/
+        cagp.paymentFlag = True;
+                
+        //String invId = [SELECT Id FROM C_Object_InvoiceInfo__c WHERE C_Item_RM_Opportunity__c = :coic.Id AND C_Item_C_InvoiceAmount__c = :opp.Amount LIMIT 1].Id;
+        String invId = cagp.invoice.Id;
+        system.debug('----- invId : ' + invId );
+
+		Test.startTest();
+        
+		Test.setMock(HttpCalloutMock.class, new C_Apex_GMOCreditConfirmOthMock(invId));    
+        PageReference pageRef = Page.C_Page_GMOEpsilonPaymentPage;
+        //URLパラメータをセットします
+        pageRef.getParameters().put('order_number', uniqueNo);
+        pageRef.getParameters().put('result', 'result');
+        pageRef.getParameters().put('trans_code', 'trans_code');
+        pageRef.getParameters().put('user_id', ac.Id);
+        pageRef.getParameters().put('id', invId );
+        //TestクラスのsetCurrentPageメソッドを使用してCurrentPageにパラメータを設定します。
+		Test.setCurrentPage(pageRef);
+        
+		system.debug('----- startTest');
+		system.debug('----- Call selectInfo()');
+		cagp.selectInfo();
+        system.debug('----- Called selectInfo()');
+        system.debug('----- Call getcreditRedirectUrl()');
+        url = String.valueOf(cagp.getcreditRedirectUrl());
+        System.debug('***** URL：' + url );
+        System.debug('***** Called getcreditRedirectUrl() *****');
+		Test.stopTest();
+                
+    }
+    
+
+}
